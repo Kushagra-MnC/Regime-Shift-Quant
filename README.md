@@ -16,12 +16,12 @@ The pipeline is structured with strict isolation between data ingestion, signal 
 
 - **Asset Universe**: Broad market index ETFs representing distinct risk premiums (NIFTYBEES, JUNIORBEES, GOLDBEES, LIQUIDBEES).
 - **Regime Detection Engine**: 2-state Gaussian Hidden Markov Model (HMM) trained on 6 macro features.
-- **State Alignment**: States are aligned using a composite risk-on score across all 6 HMM features — weighted +0.35 on momentum (nifty_mom_z), +0.15 on trend quality, and negative weights on realized volatility (−1.00, the dominant term), VIX (−0.25), INR stress (−0.10), and G-Sec momentum (−0.05) — mapping the highest-scoring state to Bull and the lowest to Crisis.
+- **State Alignment**: States are aligned using a composite risk-on score across all 6 HMM features — weighted +0.35 on momentum (`nifty_mom_z`), +0.15 on trend quality, and negative weights on realized volatility (−1.00, the dominant term), VIX (−0.25), INR stress (−0.10), and G-Sec momentum (−0.05) — mapping the highest-scoring state to Bull and the lowest to Crisis.
 - **Signal Decoding**: Implements `predict_proba` (the forward algorithm) rather than Viterbi decoding to ensure real-time, causal state classification without future data leakage.
 - **Asymmetric Persistence Filter**: 1 month to enter Crisis (fast capture of shocks like Demonetisation/COVID), 3 months to exit (stays defensive through uncertain recoveries).
 - **Magnitude Bypass**: If P(Crisis) ≥ 90%, the persistence filter is bypassed entirely — immediate Crisis allocation with no confirmation wait.
 - **Execution Logic**: Continuous allocation soft-blending based on state probabilities to minimise TC drag and portfolio thrashing.
-- **Optimizer**: CVXPY minimum-variance with Ledoit-Wolf shrinkage and regime-specific group constraints. Max Sharpe (as specified in the PS) was replaced by Min Variance because Max Sharpe is non-convex and unsolvable directly in CVXPY — regime differentiation is achieved via the equity ceiling bounds instead.
+- **Optimizer**: CVXPY convex objective combining **variance + CVaR + transaction cost**, with regime-dependent weights (not pure minimum-variance). In Bull, variance dominates (weight 1.00 vs CVaR 0.10) — the portfolio is optimised mainly for smoothness. In Crisis, CVaR dominates (weight 1.25 vs variance 0.35) — the optimizer prioritises tail-risk minimisation over variance once a crisis is confirmed. Ledoit-Wolf shrinkage is used for the covariance estimate. Max Sharpe (as specified in the PS) was replaced because it is non-convex and unsolvable directly in CVXPY — regime differentiation is instead achieved via these objective-weight shifts plus the equity group bounds (Bull: 60–90% combined equity; Crisis: 0–15%).
 
 ---
 
@@ -41,6 +41,18 @@ $$w_t = (1 - p_t) \cdot w_{\text{bull}} + p_t \cdot w_{\text{crisis}}$$
 
 Where $w_t$ is the final target weight vector at rebalance date $t$. Because both $w_{\text{bull}}$ and $w_{\text{crisis}}$ are feasible under their respective constraints, and the feasible set is convex, $w_t$ is guaranteed feasible for all $p_t \in [0,1]$.
 
+### Regime Objective (per-regime CVXPY formulation)
+
+$$\min_w \; \lambda_{\text{var}} \cdot w^\top \Sigma w \;+\; \lambda_{\text{cvar}} \cdot \text{CVaR}_{0.95}(w) \;+\; \lambda_{\text{tc}} \cdot \text{TC}(w, w_{\text{prev}})$$
+
+| Regime | $\lambda_{\text{var}}$ | $\lambda_{\text{cvar}}$ | $\lambda_{\text{tc}}$ | Dominant term |
+|---|---|---|---|---|
+| Bull | 1.00 | 0.10 | 1.00 | Variance |
+| Bear *(unused — see note below)* | 1.00 | 0.50 | 1.25 | Variance |
+| Crisis | 0.35 | 1.25 | 1.50 | **CVaR** |
+
+CVaR uses the Rockafellar–Uryasev formulation (auxiliary variables $\eta$, $u$) at the 95% confidence level.
+
 ---
 
 ## Repository Structure
@@ -50,10 +62,12 @@ Where $w_t$ is the final target weight vector at rebalance date $t$. Because bot
 | `REGIME_SHIFT_Stage1_f6.ipynb` | Data Foundation | ETF price ingestion, macro feature engineering (6 features), NSE calendar, train/holdout split |
 | `REGIME_SHIFT_Stage2_f6.ipynb` | HMM Exploration | BIC grid search over n_states × covariance_type, feature stationarity checks |
 | `REGIME_SHIFT_Stage3_f6.ipynb` | HMM Production | Final model fit, composite alignment, walk-forward regime assignment |
-| `REGIME_SHIFT_Stage4_f6.ipynb` | Portfolio Optimizer | CVXPY min-variance, Ledoit-Wolf covariance, TC model, regime bounds |
+| `REGIME_SHIFT_Stage4_f6.ipynb` | Portfolio Optimizer | CVXPY variance+CVaR+TC objective, Ledoit-Wolf covariance, regime bounds |
 | `REGIME_SHIFT_Stage5_final_f6.ipynb` | Walk-Forward Backtest | Soft blend, asymmetric persistence, LIQUIDBEES fix, full performance metrics |
 | `REGIME_SHIFT_Stage6_f6.ipynb` | Analysis & Charts | 9 publication charts, factor decomposition, v1 vs v2 comparison |
 | `REGIME_SHIFT_Stage7_f6.ipynb` | Holdout Evaluation | **Run exactly once** — sealed Jan–Nov 2024 evaluation, no re-tuning permitted |
+
+> **Note:** `optimizer_new.py` at the repo root is a standalone extraction of the Stage 4 optimizer logic. It is **not currently imported by any notebook** — Stage 4 and Stage 5 each define their own inline copy of `solve_regime_objective()`. Treat it as a reference module for future integration, not as active code in the current pipeline.
 
 ---
 
@@ -66,19 +80,25 @@ git clone https://github.com/Kushagra-MnC/Regime-Shift-Quant.git
 cd Regime-Shift-Quant
 ```
 
+ETF, signal, and macro price data (`NIFTYBEES.parquet`, `NSEI.parquet`, `GSEC_10Y.parquet`, etc.) are committed at the repo root and arrive automatically with the clone — no separate data download step is required.
+
 ### 2. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Unzip the stage4_optimizer_config.zip
+### 3. Unzip the optimizer config
 
-Download `stage4_optimizer_config.zip`, unzip into the project root:
+```bash
+unzip stage4_optimizer_config.zip
+```
+
+This creates `stage4_optimizer_config/` containing `optimizer_constants.json`, `weight_bounds.csv`, and `combined_constraints.csv` — the locked parameters Stage 4 and Stage 5 both read from.
 
 ### 4. Run notebooks sequentially
 
-Execute Stage 1 → Stage 2 → ... → Stage 7 in order.
+Execute Stage 1 → Stage 2 → ... → Stage 7 in order. Each notebook reads its inputs from the previous stage's saved outputs in `data/`.
 
 > ⚠️ **Stage 7 (Holdout) runs exactly once.** Do not re-run after seeing results — this invalidates the out-of-sample evaluation.
 
@@ -86,10 +106,10 @@ Execute Stage 1 → Stage 2 → ... → Stage 7 in order.
 
 ## Data Integrity & Reproducibility
 
-- **Pipeline Independence**: No runtime data fetching required after initial dataset setup.
+- **Pipeline Independence**: No runtime data fetching required after `git clone` — all price data ships with the repo.
 - **Seeded HMM**: `HMM_SEED = 42`, `HMM_N_INIT = 20` — identical transition matrices on every run.
-- **Expected walk-forward Sharpe**: 0.570 (107 months, Jan 2015 – Nov 2023)
-- **Expected holdout Sharpe**: 2.517 (11 months, Jan – Nov 2024)
+- **Expected walk-forward Sharpe**: 0.626 (107 months, Jan 2015 – Nov 2023)
+- **Expected holdout Sharpe**: 2.308 (11 months, Jan – Nov 2024)
 
 ---
 
@@ -97,13 +117,15 @@ Execute Stage 1 → Stage 2 → ... → Stage 7 in order.
 
 | Goal | Status | Implementation |
 |---|---|---|
-| HMM Regime Classifier (Bull/Bear/Crisis without manual labelling) | ✓ | 2-state Gaussian HMM; `predict_proba` forward algorithm |
-| Dynamic Constraint Mapping (objective shifts by regime) | ✓ | Min-variance with regime-specific equity ceiling bounds |
-| Walk-Forward Validation Harness (no look-ahead bias) | ✓ | Annual refit, expanding window; look-ahead test PASSED (shuffled Sharpe −0.064) |
+| HMM Regime Classifier (Bull/Bear/Crisis without manual labelling) | ⚠ Partial | 2-state Gaussian HMM (Bull/Crisis only); `predict_proba` forward algorithm. See note below. |
+| Dynamic Constraint Mapping (objective shifts by regime) | ✓ | Variance+CVaR+TC objective with regime-dependent weights; regime-specific equity bounds |
+| Walk-Forward Validation Harness (no look-ahead bias) | ✓ | Annual refit, expanding window; look-ahead test PASSED (shuffled timing Sharpe −0.119 vs real +1.487) |
 | Model Transaction Friction Explicitly (5–10 bps penalty) | ✓ | Asymmetric STT: buy = 3.5 bps, sell = 13 bps; avg drag 0.18%/yr |
 | Benchmark Against Static Portfolios | ✓ | vs NIFTYBEES B&H, equal-weight, 60/40 India |
 
-> **Note on Max Sharpe**: The PS specified Max Sharpe in Bull regime. Replaced by Min Variance with a relaxed equity ceiling (75%) because Max Sharpe is non-convex and cannot be solved directly in CVXPY. Regime differentiation is achieved through the 75% Bull vs 15% Crisis equity ceiling.
+> **Note on Bull/Bear/Crisis**: The PS specifies three regimes. The BIC grid search (Stage 3) tests n_states ∈ {2,3,4} and selects **n=2 (Bull/Crisis)** by a decisive margin (BIC=2103.1 vs 2106.7 for the next-best n=3 model), while n=3 and n=4 with full covariance repeatedly failed to converge (89–123 parameters on 139 training observations). `Bear` bounds and constraints exist in the optimizer config for forward-compatibility but are never triggered by the current 2-state model. See **Tried Approaches** below for what was attempted to force a genuine third state.
+>
+> **Note on Max Sharpe**: The PS specified Max Sharpe in Bull regime. Replaced by a variance-dominant convex objective with a relaxed equity ceiling (90% combined NIFTYBEES+JUNIORBEES) because Max Sharpe is non-convex and cannot be solved directly in CVXPY.
 
 ---
 
@@ -134,10 +156,19 @@ Crisis self-transition of 0.6470 means Crisis is persistent but not permanent �
 - **Risk-free rate**: 6.5% (RBI repo, flat)
 - **TC drag**: avg round-trip 1.53 bps/rebalance · avg annual drag 0.18%
 
-<img width="1313" height="914" alt="image" src="https://github.com/user-attachments/assets/08222961-6259-4305-a829-9075b363478b" />
+**Regime-conditional performance** (Stage 6):
 
-<img width="1313" height="914" alt="image" src="https://github.com/user-attachments/assets/fe89aafe-5343-4fc6-8e1a-078c4c1910a5" />
+| | Bull (58 months) | Crisis (49 months) |
+|---|---|---|
+| REGIME-SHIFT CAGR | 11.0% | **13.5%** |
+| NIFTYBEES B&H CAGR | 19.9% | 2.6% |
+| Worst month | −5.3% | −6.6% |
 
+The strategy gives up meaningful upside in Bull (11.0% vs 19.9% — the cost of the 90% equity ceiling and variance-dominant objective) but more than compensates in Crisis (13.5% vs 2.6%, and a −6.6% worst month vs B&H's −25.1%). Crisis timing accuracy (Nifty actually falling in a Crisis month) is 43% — the majority of Crisis months are "false positives" where the defensive posture wasn't strictly necessary, but the payoff asymmetry (small cost in false positives, large benefit in true positives) is what drives the Calmar advantage.
+
+<img width="1313" height="914" alt="Walk-forward performance dashboard" src="https://github.com/user-attachments/assets/08222961-6259-4305-a829-9075b363478b" />
+
+<img width="1313" height="914" alt="Presentation summary" src="https://github.com/user-attachments/assets/fe89aafe-5343-4fc6-8e1a-078c4c1910a5" />
 
 ### Holdout — Jan 2024 to Nov 2024, 11 months ¹
 
@@ -149,8 +180,10 @@ Crisis self-transition of 0.6470 means Crisis is persistent but not permanent �
 | 60/40 India | 15.6% | 7.2% | 1.184 | 2.482 | −5.2% | 3.013 | 75% | 12 |
 
 > ¹ **N=11 for REGIME-SHIFT**: December 2024 data was available in benchmark ETF feeds but the strategy's December rebalance return requires January 2025 as the settlement month, which falls outside the evaluation window. This slightly disadvantages the strategy on the CAGR comparison.
-> 
-<img width="1611" height="1110" alt="image" src="https://github.com/user-attachments/assets/63788dd1-05c4-4f12-b08f-7f55ffde3e2e" />
+>
+> **The holdout classified every one of the 11 months as Crisis** (avg P(Crisis)=0.732, magnitude bypass triggered 7/11 months). The strategy still outperformed all benchmarks because GOLDBEES (+19.1% CAGR in 2024) and JUNIORBEES (+28.1% CAGR) both had strong years even while the model read the environment as stressed. The overfitting diagnostic (holdout Sharpe / in-sample Sharpe = 4.05) indicates strong generalisation rather than a fluke, but a full-Crisis year with no Bull months at all is a single data point — one out-of-sample year is not enough to confirm the persistence filter's exit lag (3 months) is well-calibrated going forward.
+
+<img width="1611" height="1110" alt="Holdout evaluation" src="https://github.com/user-attachments/assets/63788dd1-05c4-4f12-b08f-7f55ffde3e2e" />
 
 ---
 
@@ -161,22 +194,26 @@ REGIME-SHIFT CAGR          : 12.1%
 NIFTYBEES B&H CAGR         : 11.6%
 Equal Weight CAGR          : 10.4%
 
-Alpha vs B&H               :  +0.5%  
+Alpha vs B&H               :  +0.5%
 Alpha vs Equal Weight      :  +1.7%
 Sharpe advantage vs B&H    :  +0.259
 Max DD improvement vs B&H  : −23.2 pp
 Calmar ratio vs B&H        :  1.575 vs 0.376  (4.18× better)
 
-Market beta (vs NIFTYBEES) : -0.03  (effectively market-neutral)
+Market beta (vs NIFTYBEES) : −0.03  (effectively market-neutral)
 Monthly alpha              : +1.02%  (12.29% annualised)
 R²                         :  0.003  (returns uncorrelated with Nifty)
 
 Avg annual turnover        : 185%
-Avg round-trip TC          : 1.30 bps/rebalance
+Avg round-trip TC          : 1.53 bps/rebalance
 Estimated annual TC drag   : 0.18%
 
 Bull timing  (Nifty ↑ in Bull months)   : 67%
 Crisis timing (Nifty ↓ in Crisis months) : 43%
+
+Look-ahead test (timing-contribution shuffle):
+  Real timing Sharpe    : +1.487
+  Shuffled timing Sharpe: −0.119 ± 0.204   → PASSED
 ```
 
 ---
@@ -188,12 +225,12 @@ Crisis timing (Nifty ↓ in Crisis months) : 43%
 | 1 | Data foundation — 4 ETFs, 8 raw series, 6 features, NSE calendar |
 | 2 | HMM exploration — BIC grid, feature stationarity, rolling z-score |
 | 3 | HMM production — n=2 states, composite alignment, Stage 3 config |
-| 4 | Optimizer — CVXPY min-variance, Ledoit-Wolf, asymmetric TC model |
+| 4 | Optimizer — CVXPY variance+CVaR+TC objective, Ledoit-Wolf, asymmetric TC model |
 | 5 | Walk-forward — soft blend, asymmetric persistence, LIQUIDBEES fix |
 | 6 | Analysis — 9 publication charts, factor decomposition, v1 vs v2 |
 | **7** | **Holdout — run once, results final, no re-tuning permitted** |
 
-**One-sentence pitch**: *We train a Hidden Markov Model on Indian macro data to detect Bull or Crisis conditions, then use CVXPY to find the minimum-variance portfolio that automatically shifts defensive as confidence in a Crisis rises — tested rigorously with no look-ahead bias and confirmed on a sealed 2024 holdout.*
+**One-sentence pitch**: *We train a Hidden Markov Model on Indian macro data to detect Bull or Crisis conditions, then use CVXPY to find the risk-optimal portfolio — variance-dominant in Bull, tail-risk-dominant in Crisis — that automatically shifts defensive as confidence in a Crisis rises, tested rigorously with no look-ahead bias and confirmed on a sealed 2024 holdout.*
 
 ---
 
@@ -208,6 +245,60 @@ Dependencies: `hmmlearn`, `cvxpy`, `clarabel`, `pandas`, `numpy`, `scikit-learn`
 
 ---
 
+## Tried Approaches
+
+Several design choices in the current pipeline replaced earlier approaches that were implemented, tested, and rejected on evidence. This section documents what was tried and why it was abandoned — the failures were as informative as the successes.
+
+### State alignment: pure volatility ranking → composite risk-on score
+
+**Tried:** Aligning HMM states purely by mean `realized_vol_z` per state (lowest vol = Bull, highest = Crisis).
+**Result:** Correctly separated Crisis from calm periods, but systematically mislabeled 2021 as non-Bull. 2021 was a low-volatility year following the COVID recovery, but the model's ranking put it in the same bucket as genuinely weak markets because volatility alone doesn't capture direction.
+**Fix:** Replaced with a 6-feature weighted composite score (`+0.35×momentum + 0.15×trend_quality − 1.00×realized_vol − 0.25×VIX − 0.10×INR_stress − 0.05×G-Sec_momentum`). Momentum and trend-quality terms restored the directional signal that pure volatility ranking discarded.
+
+### Feature scaling: expanding z-score → rolling 12-month z-score
+
+**Tried:** Standardising each feature against its full historical mean/std up to time $t$ (expanding window).
+**Result:** Once the COVID outlier entered the expanding window's history, subsequent stress events (2021 volatility, 2022 tightening) looked statistically unremarkable by comparison — the expanding denominator had absorbed a 2020-sized shock, so nothing after it registered as extreme.
+**Fix:** Switched to a rolling 12-month (252 trading day) window for all z-scores, so each observation is judged against recent conditions rather than all of history.
+
+### Regime count: forced n=3 (Bull/Bear/Crisis) → BIC-selected n=2
+
+**Tried:** Forcing a 3-state HMM to match the PS's Bull/Bear/Crisis specification, and separately a 4-state model.
+**Result:** With `covariance_type='full'` on 6 features, n=3 requires 89 parameters and n=4 requires 123 — both severely over-parameterised against ~139 usable training months. The BIC grid search logged repeated "Model is not converging" warnings for n≥3/full, and even where EM converged, the resulting third state was not economically distinct from Bull or Crisis (see `data/stage3/bic_grid.csv`).
+**Fix:** Let BIC select freely across n∈{2,3,4} × covariance∈{full,diag,tied}. n=2/full won by a clear margin (BIC=2103.1 vs 2106.7 for the closest competitor). `Bear` bounds remain in the optimizer config in case a future feature set (see Future Iterations) creates a genuine third cluster.
+
+### Regime decoding: Viterbi → forward algorithm (`predict_proba`)
+
+**Tried:** Hard Viterbi decoding for regime labels, which finds the single most likely state *sequence* rather than the per-timestep probability.
+**Result:** Comparing the two methods around the March 2020 boundary (Stage 3, Cell 22) showed Viterbi assigning hard Crisis/Bull flips a step later than the posterior probability implied, and disagreeing with `predict_proba` on 2 of 12 months in the comparison window. Viterbi's global-sequence optimisation is not the right tool for a system that needs a causal, real-time read of "what state am I in right now."
+**Fix:** Switched to `predict_proba`, which gives $P(S_t = k \mid O_{1:t})$ using only observations up to $t$ — no future information, and no sequence-level smoothing that could leak information backward.
+
+### Look-ahead test: shuffled portfolio returns → shuffled timing contribution
+
+**Tried:** Validating the absence of look-ahead bias by shuffling the strategy's monthly returns and checking whether the shuffled Sharpe collapsed to zero.
+**Result:** The shuffled portfolio's Sharpe stayed strongly positive (≈0.6) regardless of shuffling, because the portfolio is structurally long equity — any random reordering of a positive-expected-return series still has positive Sharpe. This test could never fail, so it proved nothing.
+**Fix:** Redefined the test around *timing contribution* — the return earned specifically from deviating from the average (passive) allocation, `(w_t − w_avg)·r_{t+1}`. Shuffling this series correctly collapsed Sharpe to ≈0 (−0.119 ± 0.204), while the real timing series scored +1.487, giving a test that can actually distinguish genuine timing skill from passive market exposure.
+
+### LIQUIDBEES return source: raw yfinance series → flat RBI repo proxy
+
+**Tried:** Using LIQUIDBEES' own yfinance-reported NAV return series directly.
+**Result:** The series showed a COVID-era distortion, understating the true overnight-rate return (≈2.7%/yr annualised vs an actual RBI repo rate closer to 6.5%/yr over the same period), which would have understated the "safe" leg of the Crisis portfolio.
+**Fix:** Overrode LIQUIDBEES with a flat 6.5%/yr proxy. Noted in Future Iterations as a simplification — a time-varying MIBOR/TREPS series would be more accurate, since the flat rate understates real yields in 2013–16 and overstates them in 2020–21.
+
+### Transaction costs: symmetric flat rate → asymmetric buy/sell by asset class
+
+**Tried:** A single flat per-rebalance cost applied identically to all assets and both trade directions.
+**Result:** This ignored India's Securities Transaction Tax (STT), which applies asymmetrically — 0.1% on the sell leg for equity ETF delivery trades, and not at all on gold or liquid ETFs.
+**Fix:** Asset-specific buy/sell costs in `optimizer_constants.json` (NIFTYBEES/JUNIORBEES: 3.5 bps buy / 13.0 bps sell; GOLDBEES: 2.5/2.5; LIQUIDBEES: 1.0/1.0), reflecting the actual STT structure.
+
+### Fixed-income sleeve: GILTBEES included → dropped
+
+**Tried:** Including GILTBEES (a G-Sec ETF) as a fifth asset to give the Crisis portfolio genuine duration exposure alongside gold.
+**Result:** Reliable price history for GILTBEES only extends back to 2018, leaving an 8-year hole at the start of the 2010–2023 backtest window.
+**Fix:** Dropped for the current 4-asset universe. Restoring it via a synthetic pre-2018 series (CRISIL Composite Bond Index or NIFTY 10yr G-Sec Index, both available from 2003) is listed under Future Iterations.
+
+---
+
 ## Future Iterations & Planned Improvements
 
 ### Tier 1 — Feature Engineering
@@ -219,7 +310,7 @@ Dependencies: `hmmlearn`, `cvxpy`, `clarabel`, `pandas`, `numpy`, `scikit-learn`
   
 - **Add raw trailing return features** (3-month and 12-month Nifty pct_change, not
   z-scored): a −15% trailing return signals genuine drawdown regardless of historical
-  average. Directly targets the 45% Crisis timing accuracy by separating "VIX spike
+  average. Directly targets the 43% Crisis timing accuracy by separating "VIX spike
   with market flat" from "VIX spike after market has already fallen 10%+".
   
 - **Add G-Sec yield level z-score** alongside the existing yield momentum feature: a
@@ -231,7 +322,7 @@ Dependencies: `hmmlearn`, `cvxpy`, `clarabel`, `pandas`, `numpy`, `scikit-learn`
 
 - **Graduated bounds as a function of P(Crisis)**: instead of fixed weight ceilings
   per regime, make the equity upper bound a continuous function:
-  `equity_upper = 0.75 − 0.55 × P(Crisis)`. Eliminates the hard corner solution
+  `equity_upper = 0.90 − 0.75 × P(Crisis)`. Eliminates the hard corner solution
   where every Bull month produces identical weights regardless of how bullish the
   signal is.
   
@@ -253,16 +344,15 @@ Dependencies: `hmmlearn`, `cvxpy`, `clarabel`, `pandas`, `numpy`, `scikit-learn`
   2020–2021 (repo rate 4%). Proper time-series makes the Crisis alpha attribution
   honest.
   
-- **Asset-class-specific TC vector**: GOLDBEES has no STT (commodity ETF, exempt
-  under Finance Act) — its sell cost should be ~5 bps, not 13 bps. Currently the
-  optimizer slightly underweights gold as a safe haven because it overstates its
-  exit cost.
-  
 - **Market impact model for larger AUM**: the current TC model handles brokerage +
   STT + stamp duty but ignores market impact. A square-root impact model
   (`impact = σ × √(trade_size / ADV)`) would let the strategy report the AUM
   ceiling at which the alpha is destroyed — standard practice for institutional
   strategy documentation.
+
+- **Wire `optimizer_new.py` into Stage 4/5**: consolidate the duplicated inline
+  optimizer logic in both notebooks into the standalone module so there is a single
+  source of truth for `solve_regime_objective()`.
 
 ### Tier 4 — Validation & Robustness
 - **Monte Carlo regime-label permutation test**: randomly permute the confirmed
@@ -276,6 +366,7 @@ Dependencies: `hmmlearn`, `cvxpy`, `clarabel`, `pandas`, `numpy`, `scikit-learn`
   sensitivity should be disclosed.
   
 - **Extending the holdout annually**: re-run Stage 7 once per year on new data
-  (2025, 2026 …) without touching any parameter. Accumulating genuine out-of-sample
-  months is the only way to build statistically meaningful evidence of
-  generalisability beyond the current 11-month window.
+  (2025, 2026 …) without touching any parameter. The 2024 holdout was a 100%-Crisis
+  year — a single data point. Accumulating genuine out-of-sample months, including
+  at least one year the model reads as Bull, is the only way to build statistically
+  meaningful evidence of generalisability beyond the current 11-month window.
