@@ -100,7 +100,7 @@ Execute Stage 1 → Stage 2 → ... → Stage 7 in order.
 | HMM Regime Classifier (Bull/Bear/Crisis without manual labelling) | ✓ | 2-state Gaussian HMM; `predict_proba` forward algorithm |
 | Dynamic Constraint Mapping (objective shifts by regime) | ✓ | Min-variance with regime-specific equity ceiling bounds |
 | Walk-Forward Validation Harness (no look-ahead bias) | ✓ | Annual refit, expanding window; look-ahead test PASSED (shuffled Sharpe −0.064) |
-| Model Transaction Friction Explicitly (5–10 bps penalty) | ✓ | Asymmetric STT: buy = 3.5 bps, sell = 13 bps; avg drag 0.16%/yr |
+| Model Transaction Friction Explicitly (5–10 bps penalty) | ✓ | Asymmetric STT: buy = 3.5 bps, sell = 13 bps; avg drag 0.18%/yr |
 | Benchmark Against Static Portfolios | ✓ | vs NIFTYBEES B&H, equal-weight, 60/40 India |
 
 > **Note on Max Sharpe**: The PS specified Max Sharpe in Bull regime. Replaced by Min Variance with a relaxed equity ceiling (75%) because Max Sharpe is non-convex and cannot be solved directly in CVXPY. Regime differentiation is achieved through the 75% Bull vs 15% Crisis equity ceiling.
@@ -173,7 +173,7 @@ R²                         :  0.003  (returns uncorrelated with Nifty)
 
 Avg annual turnover        : 185%
 Avg round-trip TC          : 1.30 bps/rebalance
-Estimated annual TC drag   : 0.16%
+Estimated annual TC drag   : 0.18%
 
 Bull timing  (Nifty ↑ in Bull months)   : 67%
 Crisis timing (Nifty ↓ in Crisis months) : 43%
