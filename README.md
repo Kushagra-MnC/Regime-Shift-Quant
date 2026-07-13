@@ -16,7 +16,7 @@ The pipeline is structured with strict isolation between data ingestion, signal 
 
 - **Asset Universe**: Broad market index ETFs representing distinct risk premiums (NIFTYBEES, JUNIORBEES, GOLDBEES, LIQUIDBEES).
 - **Regime Detection Engine**: 2-state Gaussian Hidden Markov Model (HMM) trained on 6 macro features.
-- **State Alignment**: States are aligned using a composite risk-on score (`-vol_z + 0.5 × trend_quality_z`), mapping the highest-scoring state to Bull and the lowest to Crisis. Pure volatility alignment was evaluated and discarded — it failed to correctly label 2021's low-vol recovery as Bull.
+- **State Alignment**: States are aligned using a composite risk-on score across all 6 HMM features — weighted +0.35 on momentum (nifty_mom_z), +0.15 on trend quality, and negative weights on realized volatility (−1.00, the dominant term), VIX (−0.25), INR stress (−0.10), and G-Sec momentum (−0.05) — mapping the highest-scoring state to Bull and the lowest to Crisis.
 - **Signal Decoding**: Implements `predict_proba` (the forward algorithm) rather than Viterbi decoding to ensure real-time, causal state classification without future data leakage.
 - **Asymmetric Persistence Filter**: 1 month to enter Crisis (fast capture of shocks like Demonetisation/COVID), 3 months to exit (stays defensive through uncertain recoveries).
 - **Magnitude Bypass**: If P(Crisis) ≥ 90%, the persistence filter is bypassed entirely — immediate Crisis allocation with no confirmation wait.
