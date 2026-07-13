@@ -144,7 +144,7 @@ Crisis self-transition of 0.6470 means Crisis is persistent but not permanent �
 | Strategy | CAGR | Vol | Sharpe | Sortino | Max DD | Calmar | Win Rate | N |
 |---|---|---|---|---|---|---|---|---|
 | **REGIME-SHIFT** | **21.7%** | **5.9%** | **2.308** | **3.673** | **−1.5%** | **14.155** | **82%** | 11 |
-| NIFTYBEES B&H | **10.0% | 11.0% | 0.346 | 0.377 | −8.3% | 1.205 | 58% | 12 |
+| NIFTYBEES B&H | 10.0% | 11.0% | 0.346 | 0.377 | −8.3% | 1.205 | 58% | 12 |
 | Equal Weight | 16.1% | 6.5% | 1.365 | 3.198 | −4.4% | 3.698 | 75% | 12 |
 | 60/40 India | 15.6% | 7.2% | 1.184 | 2.482 | −5.2% | 3.013 | 75% | 12 |
 
@@ -167,16 +167,16 @@ Sharpe advantage vs B&H    :  +0.259
 Max DD improvement vs B&H  : −23.2 pp
 Calmar ratio vs B&H        :  1.575 vs 0.376  (4.18× better)
 
-Market beta (vs NIFTYBEES) : 0.50
+Market beta (vs NIFTYBEES) : +0.50%
 Monthly alpha              : +1.00%  (11.99% annualised)
-R�                         :  0.006  (returns uncorrelated with Nifty)
+R²                         :  0.006  (returns uncorrelated with Nifty)
 
-Avg annual turnover        : 157%
+Avg annual turnover        : 185%
 Avg round-trip TC          : 1.30 bps/rebalance
 Estimated annual TC drag   : 0.16%
 
 Bull timing  (Nifty ↑ in Bull months)   : 67%
-Crisis timing (Nifty ↓ in Crisis months) : 45%
+Crisis timing (Nifty ↓ in Crisis months) : 43%
 ```
 
 ---
