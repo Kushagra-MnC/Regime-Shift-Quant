@@ -167,9 +167,9 @@ Sharpe advantage vs B&H    :  +0.259
 Max DD improvement vs B&H  : −23.2 pp
 Calmar ratio vs B&H        :  1.575 vs 0.376  (4.18× better)
 
-Market beta (vs NIFTYBEES) : +0.50%
-Monthly alpha              : +1.00%  (11.99% annualised)
-R²                         :  0.006  (returns uncorrelated with Nifty)
+Market beta (vs NIFTYBEES) : -0.03  (effectively market-neutral)
+Monthly alpha              : +1.02%  (12.29% annualised)
+R²                         :  0.003  (returns uncorrelated with Nifty)
 
 Avg annual turnover        : 185%
 Avg round-trip TC          : 1.30 bps/rebalance
