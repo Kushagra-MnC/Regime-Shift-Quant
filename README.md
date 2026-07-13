@@ -43,7 +43,8 @@ Where $w_t$ is the final target weight vector at rebalance date $t$. Because bot
 
 ### Regime Objective (per-regime CVXPY formulation)
 
-$$\min_w \; \lambda_{\text{var}} \cdot w^\top \Sigma w \;+\; \lambda_{\text{cvar}} \cdot \text{CVaR}_{0.95}(w) \;+\; \lambda_{\text{tc}} \cdot \text{TC}(w, w_{\text{prev}})$$
+<img width="356" height="24" alt="image" src="https://github.com/user-attachments/assets/3d727982-f32b-4b76-84c9-f07455b813d2" />
+
 
 | Regime | $\lambda_{\text{var}}$ | $\lambda_{\text{cvar}}$ | $\lambda_{\text{tc}}$ | Dominant term |
 |---|---|---|---|---|
