@@ -62,8 +62,8 @@ Where $w_t$ is the final target weight vector at rebalance date $t$. Because bot
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/Kushagra-MnC/Regime-Shift-Quant---1.git
-cd Regime-Shift-Quant---1
+git clone https://github.com/Kushagra-MnC/Regime-Shift-Quant.git
+cd Regime-Shift-Quant
 ```
 
 ### 2. Install dependencies
@@ -72,31 +72,11 @@ cd Regime-Shift-Quant---1
 pip install -r requirements.txt
 ```
 
-### 3. Add the dataset
+### 3. Unzip the stage4_optimizer_config.zip
 
-Download `dataset_fixed.zip`, unzip into the project root:
+Download `stage4_optimizer_config.zip`, unzip into the project root:
 
-```
-dataset/
-├── NIFTYBEES.parquet       # NIFTY BeES ETF daily prices (2009–2024)
-├── JUNIORBEES.parquet      # Junior BeES ETF daily prices (2009–2024)
-├── GOLDBEES.parquet        # Gold BeES ETF daily prices (2009–2024)
-├── LIQUIDBEES.parquet      # Liquid BeES ETF daily prices (2009–2024)
-├── NSEI.parquet            # Nifty 50 index daily prices (2009–2024)
-├── USDINR.parquet          # USD/INR exchange rate daily (2009–2024)
-├── GSEC_10Y.parquet        # India 10Y G-Sec yield monthly (FRED, 2011–2024)
-└── INDIAVIX.parquet        # India VIX daily close (NSE, 2010–2024)
-```
-
-### 4. Update the project path
-
-In each notebook's config cell, set `PROJECT_DIR` to your local path:
-
-```python
-PROJECT_DIR = Path(r"C:\path\to\Regime-Shift-Quant---1")
-```
-
-### 5. Run notebooks sequentially
+### 4. Run notebooks sequentially
 
 Execute Stage 1 → Stage 2 → ... → Stage 7 in order.
 
@@ -133,10 +113,10 @@ Execute Stage 1 → Stage 2 → ... → Stage 7 in order.
 
 | | Bull | Crisis |
 |---|---|---|
-| **Bull** | 0.7960 | 0.2040 |
-| **Crisis** | 0.3720 | 0.6280 |
+| **Bull** | 0.7950 | 0.2050 |
+| **Crisis** | 0.3530 | 0.6470 |
 
-Crisis self-transition of 0.628 means Crisis is persistent but not permanent — consistent with historical Indian stress episodes averaging 4–6 months.
+Crisis self-transition of 0.6470 means Crisis is persistent but not permanent — consistent with historical Indian stress episodes averaging 4–6 months.
 
 ---
 
@@ -146,13 +126,13 @@ Crisis self-transition of 0.628 means Crisis is persistent but not permanent —
 
 | Strategy | CAGR | Ann. Vol | Sharpe | Sortino | Max DD | Calmar | Win Rate |
 |---|---|---|---|---|---|---|---|
-| **REGIME-SHIFT v2** | 11.6% | 9.0% | **0.570** | 0.992 | **−9.5%** | **1.223** | 56% |
-| NIFTYBEES B&H | 11.6% | 17.2% | 0.364 | 0.377 | −31.0% | 0.376 | 55% |
-| Equal Weight | 10.4% | 8.9% | 0.448 | 0.628 | −12.5% | 0.831 | 53% |
-| 60/40 India | 10.9% | 10.5% | 0.440 | 0.587 | −15.8% | 0.689 | 54% |
+| **REGIME-SHIFT** | **12.1%** | **8.9%** | **0.626** | **1.038** | **−7.7%** | **1.575** | **57%** |
+| NIFTYBEES B&H | 11.6% | 16.9% | 0.367 | 0.371 | −31.0% | 0.376 | 55% |
+| Equal Weight | 10.4% | 8.8% | 0.457 | 0.642 | −12.5% | 0.834 | 53% |
+| 60/40 India | 10.9% | 10.3% | 0.448 | 0.595 | −15.8% | 0.691 | 54% |
 
 - **Risk-free rate**: 6.5% (RBI repo, flat)
-- **TC drag**: avg round-trip 1.30 bps/rebalance · avg annual drag 0.16%
+- **TC drag**: avg round-trip 1.53 bps/rebalance · avg annual drag 0.18%
 
 <img width="1313" height="914" alt="image" src="https://github.com/user-attachments/assets/08222961-6259-4305-a829-9075b363478b" />
 
@@ -163,10 +143,10 @@ Crisis self-transition of 0.628 means Crisis is persistent but not permanent —
 
 | Strategy | CAGR | Vol | Sharpe | Sortino | Max DD | Calmar | Win Rate | N |
 |---|---|---|---|---|---|---|---|---|
-| **REGIME-SHIFT v2** | 21.6% | 5.4% | **2.517** | 3.405 | **−1.5%** | **14.113** | 82% | 11 |
-| NIFTYBEES B&H | 11.2% | 10.7% | 0.452 | 0.539 | −7.6% | 1.470 | 50% | 12 |
-| Equal Weight | 16.8% | 6.4% | 1.497 | 3.219 | −3.9% | 4.286 | 75% | 12 |
-| 60/40 India | 16.4% | 6.9% | 1.327 | 2.506 | −4.7% | 3.515 | 75% | 12 |
+| **REGIME-SHIFT** | **21.7%** | **5.9%** | **2.308** | **3.673** | **−1.5%** | **14.155** | **82%** | 11 |
+| NIFTYBEES B&H | **10.0% | 11.0% | 0.346 | 0.377 | −8.3% | 1.205 | 58% | 12 |
+| Equal Weight | 16.1% | 6.5% | 1.365 | 3.198 | −4.4% | 3.698 | 75% | 12 |
+| 60/40 India | 15.6% | 7.2% | 1.184 | 2.482 | −5.2% | 3.013 | 75% | 12 |
 
 > ¹ **N=11 for REGIME-SHIFT**: December 2024 data was available in benchmark ETF feeds but the strategy's December rebalance return requires January 2025 as the settlement month, which falls outside the evaluation window. This slightly disadvantages the strategy on the CAGR comparison.
 > 
@@ -177,17 +157,17 @@ Crisis self-transition of 0.628 means Crisis is persistent but not permanent —
 ## Alpha Attribution
 
 ```
-REGIME-SHIFT CAGR          : 11.6%
+REGIME-SHIFT CAGR          : 12.1%
 NIFTYBEES B&H CAGR         : 11.6%
 Equal Weight CAGR          : 10.4%
 
-Alpha vs B&H               :  +0.0%  (same return, half the vol)
-Alpha vs Equal Weight      :  +1.3%
-Sharpe advantage vs B&H    :  +0.206
-Max DD improvement vs B&H  : −21.4 pp
-Calmar ratio vs B&H        :  1.223 vs 0.376  (3.25× better)
+Alpha vs B&H               :  +0.5%  
+Alpha vs Equal Weight      :  +1.7%
+Sharpe advantage vs B&H    :  +0.259
+Max DD improvement vs B&H  : −23.2 pp
+Calmar ratio vs B&H        :  1.575 vs 0.376  (4.18× better)
 
-Market beta (vs NIFTYBEES) : −0.042  (effectively market-neutral)
+Market beta (vs NIFTYBEES) : 0.50
 Monthly alpha              : +1.00%  (11.99% annualised)
 R�                         :  0.006  (returns uncorrelated with Nifty)
 
