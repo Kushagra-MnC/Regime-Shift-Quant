@@ -58,17 +58,22 @@ CVaR uses the Rockafellar–Uryasev formulation (auxiliary variables $\eta$, $u$
 
 ## Repository Structure
 
-| Notebook | Stage | Description |
-|---|---|---|
-| `REGIME_SHIFT_Stage1_f6.ipynb` | Data Foundation | ETF price ingestion, macro feature engineering (6 features), NSE calendar, train/holdout split |
-| `REGIME_SHIFT_Stage2_f6.ipynb` | HMM Exploration | BIC grid search over n_states × covariance_type, feature stationarity checks |
-| `REGIME_SHIFT_Stage3_f6.ipynb` | HMM Production | Final model fit, composite alignment, walk-forward regime assignment |
-| `REGIME_SHIFT_Stage4_f6.ipynb` | Portfolio Optimizer | CVXPY variance+CVaR+TC objective, Ledoit-Wolf covariance, regime bounds |
-| `REGIME_SHIFT_Stage5_final_f6.ipynb` | Walk-Forward Backtest | Soft blend, asymmetric persistence, LIQUIDBEES fix, full performance metrics |
-| `REGIME_SHIFT_Stage6_f6.ipynb` | Analysis & Charts | 9 publication charts, factor decomposition, v1 vs v2 comparison |
-| `REGIME_SHIFT_Stage7_f6.ipynb` | Holdout Evaluation | **Run exactly once** — sealed Jan–Nov 2024 evaluation, no re-tuning permitted |
+The pipeline runs across **6 notebooks**.
 
-> **Note:** `optimizer_new.py` at the repo root is a standalone extraction of the Stage 4 optimizer logic. It is **not currently imported by any notebook** — Stage 4 and Stage 5 each define their own inline copy of `solve_regime_objective()`. Treat it as a reference module for future integration, not as active code in the current pipeline.
+| Notebook | Role | Description |
+|---|---|---|
+| `data_foundation.ipynb` | Data Foundation | ETF price ingestion, macro feature engineering (**7 features** engineered; see note below), NSE calendar, train/holdout split |
+| `hmm_dev.ipynb` | HMM Development | BIC grid search over n_states × covariance_type **and** final model fit, composite alignment, walk-forward regime assignment, convergence checks, Viterbi vs `predict_proba` comparison — saves to `data/stage3/` |
+| `cvxpy.ipynb` | Portfolio Optimizer | CVXPY variance+CVaR+TC objective defined and unit-tested in isolation (known covariance, static historical covariance, degenerate-covariance fallback), Ledoit-Wolf covariance, regime bounds — saves locked config to `stage4_optimizer_outputs/` |
+| `walkfwd_integration.ipynb` | Walk-Forward Backtest | Soft blend, asymmetric persistence, LIQUIDBEES fix, full performance metrics — saves to `data/stage5/` |
+| `performance.ipynb` | Analysis & Charts | 9 publication charts, factor decomposition, v1 vs v2 comparison — saves to `data/stage6/` |
+| `holdout.ipynb` | Holdout Evaluation | **Run exactly once** — sealed Jan 2024 – May 2026 evaluation (28 months), no re-tuning permitted — saves to `data/stage7/` |
+
+> **Note on feature count**: `data_foundation.ipynb` engineers 7 rolling z-score features, including a 126-day slow-trend diagnostic (`nifty_trend_126d_z`) added to audit broad bull-market coverage. `hmm_dev.ipynb` deliberately feeds only 6 of these 7 to the HMM (`HMM_FEATURE_COLUMNS` excludes the slow-trend feature) — so "6 macro features" throughout this README refers to the HMM's input, not the full feature set saved to disk.
+>
+> **Note on `optimizer_new.py`**: this is the **shared, actively-imported** optimizer module — both `walkfwd_integration.ipynb` and `holdout.ipynb` do `from optimizer_new import solve_regime_objective, ...` rather than redefining the objective inline. `cvxpy.ipynb` keeps its own local copy of the same logic, since its purpose is to unit-test the objective in isolation before it becomes the shared module the production backtest imports. This gives a single source of truth for the objective function between the two out-of-sample stages.
+>
+> **Note on the "v1" reference numbers**: v1 (the pre-soft-blending baseline used in the v1-vs-v2 comparison chart in `performance.ipynb`) is no longer a runnable notebook — it exists only as a hardcoded reference dict (`V1_REF` in `performance.ipynb`, Cell 2) carried over from an earlier version of the pipeline. Treat the "v1" column in that comparison as a fixed historical baseline, not something you can regenerate by re-running code in this repo.
 
 ---
 
@@ -99,9 +104,16 @@ This creates `stage4_optimizer_config/` containing `optimizer_constants.json`, `
 
 ### 4. Run notebooks sequentially
 
-Execute Stage 1 → Stage 2 → ... → Stage 7 in order. Each notebook reads its inputs from the previous stage's saved outputs in `data/`.
+Execute in order:
 
-> ⚠️ **Stage 7 (Holdout) runs exactly once.** Do not re-run after seeing results — this invalidates the out-of-sample evaluation.
+```
+data_foundation.ipynb → hmm_dev.ipynb → cvxpy.ipynb →
+walkfwd_integration.ipynb → performance.ipynb → holdout.ipynb
+```
+
+Each notebook reads its inputs from the previous stage's saved outputs in `data/`.
+
+> ⚠️ **`holdout.ipynb` runs exactly once.** Do not re-run after seeing results — this invalidates the out-of-sample evaluation.
 
 ---
 
@@ -110,7 +122,7 @@ Execute Stage 1 → Stage 2 → ... → Stage 7 in order. Each notebook reads it
 - **Pipeline Independence**: No runtime data fetching required after `git clone` — all price data ships with the repo.
 - **Seeded HMM**: `HMM_SEED = 42`, `HMM_N_INIT = 20` — identical transition matrices on every run.
 - **Expected walk-forward Sharpe**: 0.626 (107 months, Jan 2015 – Nov 2023)
-- **Expected holdout Sharpe**: 2.308 (11 months, Jan – Nov 2024)
+- **Expected holdout Sharpe**: 1.027 (28 months, Jan 2024 – Apr 2026)
 
 ---
 
@@ -171,21 +183,21 @@ The strategy gives up meaningful upside in Bull (11.0% vs 19.9% — the cost of 
 
 <img width="1313" height="914" alt="Presentation summary" src="https://github.com/user-attachments/assets/fe89aafe-5343-4fc6-8e1a-078c4c1910a5" />
 
-### Holdout — Jan 2024 to Nov 2024, 11 months ¹
+### Holdout — Jan 2024 to Apr 2026, 28 months ¹
 
 | Strategy | CAGR | Vol | Sharpe | Sortino | Max DD | Calmar | Win Rate | N |
 |---|---|---|---|---|---|---|---|---|
-| **REGIME-SHIFT** | **21.7%** | **5.9%** | **2.308** | **3.673** | **−1.5%** | **14.155** | **82%** | 11 |
-| NIFTYBEES B&H | 10.0% | 11.0% | 0.346 | 0.377 | −8.3% | 1.205 | 58% | 12 |
-| Equal Weight | 16.1% | 6.5% | 1.365 | 3.198 | −4.4% | 3.698 | 75% | 12 |
-| 60/40 India | 15.6% | 7.2% | 1.184 | 2.482 | −5.2% | 3.013 | 75% | 12 |
+| **REGIME-SHIFT** | **14.2%** | **7.0%** | **1.027** | **1.230** | **−5.1%** | **2.764** | **68%** | 28 |
+| NIFTYBEES B&H | 4.6% | 13.6% | −0.069 | −0.175 | −14.5% | 0.315 | 52% | 29 |
+| Equal Weight | 16.8% | 9.4% | 1.034 | 1.100 | −7.9% | 2.122 | 72% | 29 |
+| 60/40 India | 16.1% | 10.3% | 0.891 | 0.905 | −9.0% | 1.788 | 72% | 29 |
 
-> ¹ **N=11 for REGIME-SHIFT**: December 2024 data was available in benchmark ETF feeds but the strategy's December rebalance return requires January 2025 as the settlement month, which falls outside the evaluation window. This slightly disadvantages the strategy on the CAGR comparison.
+> ¹ **N=28 for REGIME-SHIFT**: the same one-month settlement lag as before applies at the end of the extended window — the final decision (30 Apr 2026) requires May 2026 as its settlement month, which falls right at the edge of the evaluation window and is excluded once no further decision exists to consume it.
 >
-> **The holdout classified every one of the 11 months as Crisis** (avg P(Crisis)=0.732, magnitude bypass triggered 7/11 months). The strategy still outperformed all benchmarks because GOLDBEES (+19.1% CAGR in 2024) and JUNIORBEES (+28.1% CAGR) both had strong years even while the model read the environment as stressed. The overfitting diagnostic (holdout Sharpe / in-sample Sharpe = 4.05) indicates strong generalisation rather than a fluke, but a full-Crisis year with no Bull months at all is a single data point — one out-of-sample year is not enough to confirm the persistence filter's exit lag (3 months) is well-calibrated going forward.
-
-<img width="1611" height="1110" alt="Holdout evaluation" src="https://github.com/user-attachments/assets/63788dd1-05c4-4f12-b08f-7f55ffde3e2e" />
-
+> **This is an extended holdout, covering two materially different periods.** Jan 2024 – May 2025 (17 months) was read almost entirely as Crisis, consistent with the original 11-month holdout reported in earlier versions of this README. The extension adds Jun 2025 – Apr 2026 (11 months), during which the model called **Bull for the first time in any holdout test** — a sustained call from May/Jun 2025 through Jan 2026, before reverting to Crisis in Feb–Apr 2026 (coinciding with a real −5.1% NIFTYBEES month in March 2026). Regime split: 20 Crisis months (71%), 8 Bull months (29%).
+>
+>
+<img width="770" height="526" alt="image" src="https://github.com/user-attachments/assets/41db9112-2300-4b69-b80e-582d21ee8060" />
 ---
 
 ## Alpha Attribution
@@ -221,17 +233,16 @@ Look-ahead test (timing-contribution shuffle):
 
 ## Final Stage Summary
 
-| Stage | Output |
-|---|---|
-| 1 | Data foundation — 4 ETFs, 8 raw series, 6 features, NSE calendar |
-| 2 | HMM exploration — BIC grid, feature stationarity, rolling z-score |
-| 3 | HMM production — n=2 states, composite alignment, Stage 3 config |
-| 4 | Optimizer — CVXPY variance+CVaR+TC objective, Ledoit-Wolf, asymmetric TC model |
-| 5 | Walk-forward — soft blend, asymmetric persistence, LIQUIDBEES fix |
-| 6 | Analysis — 9 publication charts, factor decomposition, v1 vs v2 |
-| **7** | **Holdout — run once, results final, no re-tuning permitted** |
+| # | Notebook | Output |
+|---|---|---|
+| 1 | `data_foundation.ipynb` | Data foundation — 4 ETFs, 8 raw series, 7 features engineered, NSE calendar |
+| 2 | `hmm_dev.ipynb` | HMM development — BIC grid search + production fit, n=2 states, composite alignment, saves `data/stage3/` |
+| 3 | `cvxpy.ipynb` | Optimizer — CVXPY variance+CVaR+TC objective, Ledoit-Wolf, asymmetric TC model, unit-tested in isolation |
+| 4 | `walkfwd_integration.ipynb` | Walk-forward — soft blend, asymmetric persistence, LIQUIDBEES fix |
+| 5 | `performance.ipynb` | Analysis — 9 publication charts, factor decomposition, v1 vs v2 |
+| **6** | **`holdout.ipynb`** | **Holdout — run once, results final, no re-tuning permitted** |
 
-**One-sentence pitch**: *We train a Hidden Markov Model on Indian macro data to detect Bull or Crisis conditions, then use CVXPY to find the risk-optimal portfolio — variance-dominant in Bull, tail-risk-dominant in Crisis — that automatically shifts defensive as confidence in a Crisis rises, tested rigorously with no look-ahead bias and confirmed on a sealed 2024 holdout.*
+**One-sentence pitch**: *We train a Hidden Markov Model on Indian macro data to detect Bull or Crisis conditions, then use CVXPY to find the risk-optimal portfolio — variance-dominant in Bull, tail-risk-dominant in Crisis — that automatically shifts defensive as confidence in a Crisis rises, tested rigorously with no look-ahead bias and confirmed on a sealed holdout extending through April 2026.*
 
 ---
 
@@ -351,9 +362,9 @@ Several design choices in the current pipeline replaced earlier approaches that 
   ceiling at which the alpha is destroyed — standard practice for institutional
   strategy documentation.
 
-- **Wire `optimizer_new.py` into Stage 4/5**: consolidate the duplicated inline
-  optimizer logic in both notebooks into the standalone module so there is a single
-  source of truth for `solve_regime_objective()`.
+- `walkfwd_integration.ipynb` and `holdout.ipynb` both import `solve_regime_objective()` and related functions
+  directly from `optimizer_new.py`, so the objective function unit-tested in
+  `cvxpy.ipynb` is the same code executed in both out-of-sample stages.
 
 ### Tier 4 — Validation & Robustness
 - **Monte Carlo regime-label permutation test**: randomly permute the confirmed
@@ -365,9 +376,3 @@ Several design choices in the current pipeline replaced earlier approaches that 
   training windows of 48, 60, and 84 months. If Sharpe varies materially across
   window lengths, the strategy is sensitive to this design choice and that
   sensitivity should be disclosed.
-  
-- **Extending the holdout annually**: re-run Stage 7 once per year on new data
-  (2025, 2026 …) without touching any parameter. The 2024 holdout was a 100%-Crisis
-  year — a single data point. Accumulating genuine out-of-sample months, including
-  at least one year the model reads as Bull, is the only way to build statistically
-  meaningful evidence of generalisability beyond the current 11-month window.
